@@ -5,11 +5,12 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
 ![Nmap](https://img.shields.io/badge/Nmap-Powered-4682B4?style=for-the-badge)
+![AI](https://img.shields.io/badge/AI-Groq%20LLM-F55036?style=for-the-badge&logo=ai&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 **Enterprise-grade vulnerability scanner inspired by Nessus, Qualys, and OpenVAS**
 
-[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Compliance](#-compliance-frameworks) • [Architecture](#-architecture)
+[Features](#-features) • [AI Setup](#ai-configuration) • [Installation](#-installation) • [Usage](#-usage) • [Architecture](#-architecture)
 
 </div>
 
@@ -31,6 +32,7 @@ CoreDefend is an enterprise-grade automated vulnerability scanner designed for s
 |---------|------------|----------------|
 | Scan Presets | 6 optimized presets | Limited options |
 | Compliance Frameworks | PCI-DSS, CIS, HIPAA, NIST | None |
+| **AI Analysis** | **Groq LLM integration** | **None** |
 | Asset Inventory | Automatic tracking | Manual |
 | Remediation Tracking | Built-in workflow | External tools |
 | Export Formats | PDF, CSV, JSON, HTML | PDF only |
@@ -135,6 +137,73 @@ CoreDefend includes built-in compliance checking for major security frameworks:
 | **JSON** | Structured data | API integration |
 | **HTML** | Styled web report | Email sharing |
 
+### AI-Powered Analysis
+
+CoreDefend integrates **Groq LLM** (Llama 3.3 70B) for intelligent vulnerability analysis:
+
+| Analysis Type | Description |
+|---------------|-------------|
+| **Executive Summary** | High-level risk overview for management |
+| **Technical Report** | Detailed attack vectors and exploitation risks |
+| **Remediation Plan** | Step-by-step fix instructions with commands |
+| **Full Analysis** | Comprehensive security assessment |
+
+**Features:**
+- Interactive AI chat for follow-up questions
+- Context-aware responses based on scan results
+- Italian language support
+- Conversation memory for multi-turn discussions
+
+---
+
+## AI Configuration
+
+CoreDefend uses **Groq** (free tier available) for AI analysis. To enable AI features:
+
+### 1. Get a Free API Key
+
+1. Go to [console.groq.com](https://console.groq.com)
+2. Sign up with Google or GitHub (free)
+3. Click **API Keys** → **Create API Key**
+4. Copy your key (starts with `gsk_...`)
+
+### 2. Configure the API Key
+
+#### macOS / Linux
+
+```bash
+echo 'export GROQ_API_KEY="gsk_your_key_here"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+#### Windows (PowerShell)
+
+```powershell
+[System.Environment]::SetEnvironmentVariable('GROQ_API_KEY', 'gsk_your_key_here', 'User')
+```
+
+#### Windows (CMD)
+
+```cmd
+setx GROQ_API_KEY "gsk_your_key_here"
+```
+
+#### Alternative: Streamlit Secrets
+
+Create `.streamlit/secrets.toml` in the project folder:
+
+```toml
+GROQ_API_KEY = "gsk_your_key_here"
+```
+
+### 3. Restart the Application
+
+```bash
+streamlit run app.py
+```
+
+The AI Analysis tab will now be fully functional.
+
 ---
 
 ## Installation
@@ -207,11 +276,12 @@ streamlit run app.py
 
 ### Interface Overview
 
-CoreDefend features a tabbed interface with 5 main sections:
+CoreDefend features a tabbed interface with 6 main sections:
 
 | Tab | Description |
 |-----|-------------|
 | **Scanner** | Configure and run vulnerability scans |
+| **AI Analysis** | AI-powered vulnerability analysis and chat |
 | **Compliance** | Check results against security frameworks |
 | **History** | View past scans and trends |
 | **Assets** | Manage discovered hosts |
@@ -253,7 +323,7 @@ CoreDefend/
 
 | Module | Responsibility |
 |--------|---------------|
-| `app.py` | Web interface, tabs, visualization, compliance checking |
+| `app.py` | Web interface, tabs, visualization, compliance checking, AI integration |
 | `scanner.py` | Nmap wrapper, scan execution, result parsing |
 | `analyzer.py` | Port risk assessment, CVE API queries, severity classification |
 | `reporter.py` | PDF generation with ReportLab, report formatting |
@@ -271,6 +341,7 @@ User Input → Scan Configuration
               │           app.py                    │
               │  ┌─────────────────────────────┐   │
               │  │ • Dashboard visualization    │   │
+              │  │ • AI Analysis (Groq LLM)     │   │
               │  │ • Compliance checking        │   │
               │  │ • History management         │   │
               │  │ • Asset inventory            │   │
@@ -331,6 +402,11 @@ The scanner flags these high-risk ports with immediate alerts:
 
 ## API Integration
 
+### Groq AI API
+- **Model**: Llama 3.3 70B Versatile
+- **Usage**: AI-powered vulnerability analysis and chat
+- **Rate Limit**: Free tier available (see [AI Configuration](#ai-configuration))
+
 ### NIST NVD API
 - **Endpoint**: `https://services.nvd.nist.gov/rest/json/cves/2.0`
 - **Usage**: Primary CVE lookup based on service/version keywords
@@ -362,6 +438,7 @@ plotly>=5.18.0
 python-nmap>=0.7.1
 requests>=2.31.0
 reportlab>=4.0.0
+groq>=0.4.0
 ```
 
 ---
@@ -373,6 +450,7 @@ reportlab>=4.0.0
 | Price | Free | $$$$ | Free | $$$$ |
 | Scan Engine | Nmap | Proprietary | OpenVAS | Proprietary |
 | CVE Database | NVD API | 130k+ plugins | 150k+ NVTs | Proprietary |
+| **AI Analysis** | **Groq LLM** | **Limited** | **None** | **Limited** |
 | Compliance | 4 frameworks | Many | Many | Many |
 | Cloud-based | No | Optional | No | Yes |
 | Ease of Use | High | High | Medium | High |
@@ -406,6 +484,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [python-nmap](https://pypi.org/project/python-nmap/) - Python bindings for Nmap
 - [Streamlit](https://streamlit.io/) - The web framework
 - [Plotly](https://plotly.com/) - Interactive visualizations
+- [Groq](https://groq.com/) - AI inference engine (Llama 3.3 70B)
 - [NIST NVD](https://nvd.nist.gov/) - CVE database
 - [CIRCL](https://www.circl.lu/) - CVE API fallback
 

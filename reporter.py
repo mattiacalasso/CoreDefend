@@ -4,7 +4,7 @@ CoreDefend - Report Generator Module
 This module provides PDF report generation capabilities for
 vulnerability scan results using ReportLab.
 
-Author: CoreDefend Security Team
+Author: Mattia Calasso
 License: MIT
 """
 
@@ -13,16 +13,13 @@ from datetime import datetime
 from typing import Optional
 
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, letter
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch, cm
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from reportlab.lib.units import inch
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    PageBreak, Image, HRFlowable
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
 )
-from reportlab.graphics.shapes import Drawing, Rect, String
-from reportlab.graphics.charts.piecharts import Pie
 
 from analyzer import Severity, PortAlert, CVEInfo, VulnerabilityReport
 from scanner import ScanResult, HostInfo
@@ -580,17 +577,3 @@ class ReportGenerator:
 
         return pdf_content
 
-    def generate_quick_summary(self, scan_result: ScanResult) -> bytes:
-        """
-        Generate a quick summary PDF without detailed vulnerability analysis.
-
-        Args:
-            scan_result: The scan result data from NetworkScanner.
-
-        Returns:
-            PDF content as bytes.
-        """
-        # Create empty vulnerability report
-        vuln_report = VulnerabilityReport()
-
-        return self.generate(scan_result, vuln_report)

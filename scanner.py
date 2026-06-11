@@ -4,12 +4,16 @@ CoreDefend - Network Scanner Module
 This module provides network scanning capabilities using Nmap.
 It handles port scanning, service detection, and OS fingerprinting.
 
-Author: CoreDefend Security Team
+Author: Mattia Calasso
 License: MIT
 """
 
 import nmap
-from typing import Optional
+import subprocess
+import re
+import shutil
+import xml.etree.ElementTree as ET
+from typing import Optional, Generator, Callable
 from dataclasses import dataclass, field
 
 
@@ -271,6 +275,231 @@ class NetworkScanner:
                 f"No hosts found for target {target}. "
                 "The host may be down or blocking probe packets."
             )
+
+        return result
+
+    def scan_with_progress(
+        self,
+        target: str,
+        scan_type: str = "fast",
+        custom_arguments: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> ScanResult:
+        """
+        Perform a network scan with real-time progress updates.
+
+        Args:
+            target: IP address, hostname, or CIDR range to scan.
+            scan_type: Type of scan to perform (used if custom_arguments is None).
+            custom_arguments: Custom nmap arguments string (overrides scan_type).
+            progress_callback: Callback function(percent, status_message).
+
+        Returns:
+            ScanResult object containing scan results.
+        """
+        target = self._validate_target(target)
+
+        # Find nmap executable
+        nmap_path = shutil.which("nmap")
+        if not nmap_path:
+            raise NmapNotInstalledError("Nmap is not installed or not found in PATH.")
+
+        # Get scan arguments
+        if custom_arguments:
+            arguments = custom_arguments
+        elif scan_type in self.SCAN_TYPES:
+            arguments = self.SCAN_TYPES[scan_type]["arguments"]
+        else:
+            arguments = "-T4 -F"  # Default fallback
+
+        # Build command with progress stats and XML output
+        cmd = [
+            nmap_path,
+            "--stats-every", "2s",
+            "-oX", "-",  # XML output to stdout
+            *arguments.split(),
+            target
+        ]
+
+        # Progress patterns
+        progress_pattern = re.compile(r'About (\d+\.?\d*)% done')
+        task_pattern = re.compile(r'(\w+(?:\s+\w+)*)\s+Timing:')
+
+        current_progress = 0
+        current_task = "Initializing scan..."
+
+        try:
+            # Use threads to read stdout and stderr simultaneously
+            import threading
+            import queue
+
+            xml_queue = queue.Queue()
+            stderr_queue = queue.Queue()
+
+            def read_stdout(pipe, q):
+                try:
+                    for line in pipe:
+                        q.put(line)
+                finally:
+                    q.put(None)  # Signal end
+
+            def read_stderr(pipe, q):
+                try:
+                    for line in pipe:
+                        q.put(line)
+                finally:
+                    q.put(None)  # Signal end
+
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+
+            # Start reader threads
+            stdout_thread = threading.Thread(target=read_stdout, args=(process.stdout, xml_queue))
+            stderr_thread = threading.Thread(target=read_stderr, args=(process.stderr, stderr_queue))
+            stdout_thread.daemon = True
+            stderr_thread.daemon = True
+            stdout_thread.start()
+            stderr_thread.start()
+
+            xml_output = []
+            stdout_done = False
+            stderr_done = False
+
+            while not (stdout_done and stderr_done):
+                # Read from stderr for progress
+                try:
+                    while True:
+                        line = stderr_queue.get_nowait()
+                        if line is None:
+                            stderr_done = True
+                            break
+
+                        progress_match = progress_pattern.search(line)
+                        if progress_match:
+                            current_progress = int(float(progress_match.group(1)))
+
+                        task_match = task_pattern.search(line)
+                        if task_match:
+                            current_task = task_match.group(1)
+
+                        if progress_callback:
+                            progress_callback(current_progress, current_task)
+
+                except queue.Empty:
+                    pass
+
+                # Read from stdout for XML
+                try:
+                    while True:
+                        line = xml_queue.get_nowait()
+                        if line is None:
+                            stdout_done = True
+                            break
+                        xml_output.append(line)
+                except queue.Empty:
+                    pass
+
+                # Small sleep to prevent busy waiting
+                if not (stdout_done and stderr_done):
+                    import time
+                    time.sleep(0.1)
+
+            # Wait for process to complete
+            process.wait()
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+
+            if progress_callback:
+                progress_callback(100, "Scan complete")
+
+            # Parse XML output
+            xml_string = ''.join(xml_output)
+            scan_label = "custom" if custom_arguments else scan_type
+            return self._parse_xml_results(xml_string, target, scan_label, arguments)
+
+        except subprocess.SubprocessError as e:
+            raise NmapScannerError(f"Failed to execute nmap: {e}") from e
+        except Exception as e:
+            raise NmapScannerError(f"Scan failed: {e}") from e
+
+    def _parse_xml_results(
+        self,
+        xml_string: str,
+        target: str,
+        scan_type: str,
+        arguments: str = ""
+    ) -> ScanResult:
+        """Parse nmap XML output into ScanResult."""
+        result = ScanResult(
+            target=target,
+            scan_type=scan_type,
+            command_line=f"nmap {arguments} {target}"
+        )
+
+        try:
+            root = ET.fromstring(xml_string)
+        except ET.ParseError as e:
+            result.error = f"Failed to parse scan results: {e}"
+            return result
+
+        # Parse hosts
+        for host_elem in root.findall('.//host'):
+            status = host_elem.find('status')
+            if status is None or status.get('state') != 'up':
+                continue
+
+            # Get IP address
+            addr_elem = host_elem.find("address[@addrtype='ipv4']")
+            if addr_elem is None:
+                addr_elem = host_elem.find("address[@addrtype='ipv6']")
+            ip = addr_elem.get('addr') if addr_elem is not None else "unknown"
+
+            # Get hostname
+            hostname = ""
+            hostname_elem = host_elem.find('.//hostname')
+            if hostname_elem is not None:
+                hostname = hostname_elem.get('name', '')
+
+            # Get OS info
+            os_match = ""
+            os_accuracy = 0
+            osmatch_elem = host_elem.find('.//osmatch')
+            if osmatch_elem is not None:
+                os_match = osmatch_elem.get('name', '')
+                os_accuracy = int(osmatch_elem.get('accuracy', 0))
+
+            host_info = HostInfo(
+                ip=ip,
+                hostname=hostname,
+                state='up',
+                os_match=os_match,
+                os_accuracy=os_accuracy
+            )
+
+            # Parse ports
+            for port_elem in host_elem.findall('.//port'):
+                state_elem = port_elem.find('state')
+                service_elem = port_elem.find('service')
+
+                port_info = PortInfo(
+                    port=int(port_elem.get('portid', 0)),
+                    state=state_elem.get('state', 'unknown') if state_elem is not None else 'unknown',
+                    protocol=port_elem.get('protocol', 'tcp'),
+                    service=service_elem.get('name', 'unknown') if service_elem is not None else 'unknown',
+                    version=service_elem.get('version', '') if service_elem is not None else '',
+                    product=service_elem.get('product', '') if service_elem is not None else '',
+                    extra_info=service_elem.get('extrainfo', '') if service_elem is not None else ''
+                )
+                host_info.ports.append(port_info)
+
+            result.hosts.append(host_info)
+
+        if not result.hosts:
+            result.error = f"No hosts found for target {target}."
 
         return result
 

@@ -4,7 +4,7 @@ CoreDefend - Vulnerability Analyzer Module
 This module provides vulnerability analysis capabilities including
 CVE lookup via public APIs and critical port identification.
 
-Author: CoreDefend Security Team
+Author: Mattia Calasso
 License: MIT
 """
 

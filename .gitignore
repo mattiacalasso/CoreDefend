@@ -49,6 +49,9 @@ Thumbs.db
 *.pdf
 *.csv
 
+# Runtime data (scan history, assets, etc.)
+coredefend_data/
+
 # Environment variables
 .env
 .env.local

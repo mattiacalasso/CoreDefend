@@ -5,22 +5,22 @@ Inspired by Nessus, Qualys, and OpenVAS
 Features:
 - Multi-preset scanning (Ultra Fast, Quick, Full, Custom)
 - CVE Intelligence with CVSS scoring
-- Compliance reporting (PCI-DSS, CIS, HIPAA)
+- Compliance reporting (PCI-DSS, CIS, HIPAA, NIST)
 - Scan history and asset inventory
 - Multiple export formats (PDF, CSV, JSON, HTML)
 - Remediation tracking
+- AI-powered analysis with Groq
 - Optimized parallel scanning
 
 Usage:
     streamlit run app.py
 
-Author: CoreDefend Security Team
+Author: Mattia Calasso
 License: MIT
 """
 
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import json
@@ -85,9 +85,13 @@ st.markdown("""
     [data-testid="stSidebar"] {display: none;}
     [data-testid="collapsedControl"] {display: none;}
 
-    /* Global Dark Theme */
+    /* Global Dark Theme with Grid Pattern */
     .stApp {
-        background: #0d0d0d;
+        background-color: #0e0e0e;
+        background-image:
+            linear-gradient(rgba(255, 107, 53, 0.15) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 107, 53, 0.15) 1px, transparent 1px);
+        background-size: 50px 50px;
     }
 
     /* Main Container */
@@ -324,18 +328,6 @@ st.markdown("""
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
-
-def get_severity_colors():
-    """Return color mapping for severity levels."""
-    return {
-        "CRITICAL": "#ef4444",
-        "HIGH": "#f97316",
-        "MEDIUM": "#eab308",
-        "LOW": "#22c55e",
-        "INFO": "#3b82f6",
-        "UNKNOWN": "#666666"
-    }
-
 
 def load_json_file(filepath, default=None):
     """Load JSON file or return default."""
@@ -936,7 +928,7 @@ def update_assets(scan_result, vuln_report):
             "last_scan": datetime.now().isoformat(),
             "open_ports": open_ports,
             "findings_count": len(findings),
-            "os_guess": host.os_guess if hasattr(host, 'os_guess') else None
+            "os_match": host.os_match if host.os_match else None
         }
 
     save_json_file(ASSETS_FILE, assets)
@@ -1680,12 +1672,6 @@ def render_remediation_tab():
 
 def render_ai_tab():
     """Render AI Analysis tab."""
-    st.markdown("""
-    <div class="section-header">
-        <div class="section-icon"></div>
-        <span class="section-title">AI Security Analysis</span>
-    </div>
-    """, unsafe_allow_html=True)
 
     # Check if AI is available
     if not GROQ_AVAILABLE:
@@ -1762,178 +1748,147 @@ Se configurato correttamente, questo messaggio scomparirà.
         st.info("Esegui prima una scansione per utilizzare l'analisi AI.")
         return
 
-    # AI Analysis Options
-    st.markdown("### Analisi Automatica")
+    # Initialize session state
+    if 'ai_chat_history' not in st.session_state:
+        st.session_state.ai_chat_history = []
+    if 'chat_input_key' not in st.session_state:
+        st.session_state.chat_input_key = 0
 
-    col1, col2, col3, col4 = st.columns(4)
+    # Main layout: Chat (left) + Analysis buttons (right)
+    col_chat, col_actions = st.columns([3, 1])
 
-    with col1:
-        if st.button("📊 Executive Summary", use_container_width=True):
-            with st.spinner("Generazione Executive Summary..."):
-                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "executive")
-                st.session_state.ai_result = result
-                st.session_state.ai_type = "Executive Summary"
-
-    with col2:
-        if st.button("🔧 Report Tecnico", use_container_width=True):
-            with st.spinner("Generazione Report Tecnico..."):
-                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "technical")
-                st.session_state.ai_result = result
-                st.session_state.ai_type = "Report Tecnico"
-
-    with col3:
-        if st.button("🛠️ Piano Remediation", use_container_width=True):
-            with st.spinner("Generazione Piano Remediation..."):
-                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "remediation")
-                st.session_state.ai_result = result
-                st.session_state.ai_type = "Piano Remediation"
-
-    with col4:
-        if st.button("📋 Analisi Completa", use_container_width=True):
-            with st.spinner("Generazione Analisi Completa..."):
-                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "full")
-                st.session_state.ai_result = result
-                st.session_state.ai_type = "Analisi Completa"
-
-    # Display AI Result
-    if 'ai_result' in st.session_state and st.session_state.ai_result:
-        st.markdown(f"### {st.session_state.get('ai_type', 'Risultato AI')}")
-
-        st.markdown(f"""
-        <div class="data-card">
-            <div style="color: #fff; line-height: 1.8;">
-                {st.session_state.ai_result.replace(chr(10), '<br>')}
-            </div>
+    # RIGHT COLUMN: Analysis buttons
+    with col_actions:
+        st.markdown("""
+        <div class="section-header">
+            <div class="section-icon"></div>
+            <span class="section-title">Analisi Auto</span>
         </div>
         """, unsafe_allow_html=True)
 
-        # Export AI Report
-        col1, col2 = st.columns([1, 3])
-        with col1:
+        if st.button("📊 Executive Summary", use_container_width=True, key="btn_exec"):
+            with st.spinner("Generazione..."):
+                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "executive")
+                st.session_state.ai_result = result
+                st.session_state.ai_type = "Executive Summary"
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": f"**Executive Summary generato:**\n\n{result}"})
+                st.rerun()
+
+        if st.button("🔧 Report Tecnico", use_container_width=True, key="btn_tech"):
+            with st.spinner("Generazione..."):
+                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "technical")
+                st.session_state.ai_result = result
+                st.session_state.ai_type = "Report Tecnico"
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": f"**Report Tecnico generato:**\n\n{result}"})
+                st.rerun()
+
+        if st.button("🛠️ Piano Remediation", use_container_width=True, key="btn_remed"):
+            with st.spinner("Generazione..."):
+                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "remediation")
+                st.session_state.ai_result = result
+                st.session_state.ai_type = "Piano Remediation"
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": f"**Piano Remediation generato:**\n\n{result}"})
+                st.rerun()
+
+        if st.button("📋 Analisi Completa", use_container_width=True, key="btn_full"):
+            with st.spinner("Generazione..."):
+                result = analyze_with_ai(st.session_state.scan_result, st.session_state.vuln_report, "full")
+                st.session_state.ai_result = result
+                st.session_state.ai_type = "Analisi Completa"
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": f"**Analisi Completa generata:**\n\n{result}"})
+                st.rerun()
+
+        st.markdown("---")
+
+        # Export button
+        if 'ai_result' in st.session_state and st.session_state.ai_result:
             st.download_button(
-                "📥 Scarica Report AI",
+                "📥 Scarica Report",
                 st.session_state.ai_result,
-                f"CoreDefend_AI_{st.session_state.get('ai_type', 'Report')}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                f"CoreDefend_AI_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
                 "text/markdown",
                 use_container_width=True
             )
 
-    # AI Chat
-    st.markdown("---")
-    st.markdown("### Chat con AI")
+        # Clear chat button
+        if st.session_state.ai_chat_history:
+            if st.button("🗑️ Pulisci Chat", use_container_width=True):
+                st.session_state.ai_chat_history = []
+                st.session_state.ai_result = None
+                st.session_state.chat_input_key += 1
+                st.rerun()
 
-    # Show context info
-    if 'ai_result' in st.session_state and st.session_state.ai_result:
-        st.success("L'AI ha memoria dell'analisi precedente. Puoi fare domande di approfondimento!")
+    # LEFT COLUMN: Chat
+    with col_chat:
+        st.markdown("""
+        <div class="section-header">
+            <div class="section-icon"></div>
+            <span class="section-title">Chat AI</span>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Initialize chat history
-    if 'ai_chat_history' not in st.session_state:
-        st.session_state.ai_chat_history = []
-
-    # Display chat history first
-    chat_container = st.container()
-    with chat_container:
-        if not st.session_state.ai_chat_history:
-            st.markdown("""
-            <div style="background: #252525; padding: 20px; border-radius: 12px; text-align: center; color: #888;">
-                <p>Inizia una conversazione con l'AI.</p>
-                <p style="font-size: 0.85rem;">Puoi chiedere dettagli sull'analisi, approfondimenti su vulnerabilità specifiche, o consigli di remediation.</p>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
+        # Chat messages container
+        chat_container = st.container(height=450)
+        with chat_container:
             for msg in st.session_state.ai_chat_history:
                 if msg["role"] == "user":
                     st.markdown(f"""
-                    <div style="background: #3b82f6; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; margin-left: 20%;">
+                    <div style="background: #3b82f6; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; margin-left: 15%;">
                         <strong>Tu:</strong> {msg["content"]}
                     </div>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown(f"""
-                    <div style="background: #252525; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; margin-right: 10%; border-left: 3px solid #ff6b35;">
+                    <div style="background: #252525; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; border-left: 3px solid #ff6b35;">
                         <strong>AI:</strong><br>{msg["content"].replace(chr(10), '<br>')}
                     </div>
                     """, unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
+        # Chat input
+        input_col, btn_col = st.columns([5, 1])
 
-    # Quick question suggestions (only show if no chat history)
-    if not st.session_state.ai_chat_history:
-        st.markdown("**Domande suggerite:**")
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            if st.button("Qual è il rischio maggiore?", key="q1", use_container_width=True):
-                st.session_state.pending_question = "Qual è il rischio maggiore che hai identificato e perché?"
-                st.rerun()
-
-        with col2:
-            if st.button("Come proteggo le porte?", key="q2", use_container_width=True):
-                st.session_state.pending_question = "Come posso proteggere le porte critiche che hai identificato?"
-                st.rerun()
-
-        with col3:
-            if st.button("Priorità di intervento?", key="q3", use_container_width=True):
-                st.session_state.pending_question = "Dammi una lista delle priorità di intervento ordinate per urgenza"
-                st.rerun()
-
-    # Process pending question from buttons
-    if 'pending_question' in st.session_state:
-        pending = st.session_state.pop('pending_question')
-        with st.spinner("Elaborazione..."):
-            previous_analysis = st.session_state.get('ai_result', None)
-            response = chat_with_ai(
-                pending,
-                st.session_state.scan_result,
-                st.session_state.vuln_report,
-                chat_history=st.session_state.ai_chat_history,
-                previous_analysis=previous_analysis
+        with input_col:
+            user_question = st.text_input(
+                "Messaggio",
+                placeholder="Scrivi una domanda...",
+                key=f"ai_chat_input_{st.session_state.chat_input_key}",
+                label_visibility="collapsed"
             )
-            st.session_state.ai_chat_history.append({"role": "user", "content": pending})
-            st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
-            st.rerun()
 
-    # Initialize input key counter for clearing input
-    if 'chat_input_key' not in st.session_state:
-        st.session_state.chat_input_key = 0
+        with btn_col:
+            send_btn = st.button("Invia", use_container_width=True, type="primary")
 
-    # Chat input area
-    col1, col2 = st.columns([5, 1])
+        # Process pending question from buttons
+        if 'pending_question' in st.session_state:
+            pending = st.session_state.pop('pending_question')
+            with st.spinner("Elaborazione..."):
+                previous_analysis = st.session_state.get('ai_result', None)
+                response = chat_with_ai(
+                    pending,
+                    st.session_state.scan_result,
+                    st.session_state.vuln_report,
+                    chat_history=st.session_state.ai_chat_history,
+                    previous_analysis=previous_analysis
+                )
+                st.session_state.ai_chat_history.append({"role": "user", "content": pending})
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
+                st.rerun()
 
-    with col1:
-        user_question = st.text_input(
-            "Messaggio",
-            placeholder="Scrivi la tua domanda... (es: Spiegami meglio la vulnerabilità sulla porta 22)",
-            key=f"ai_chat_input_{st.session_state.chat_input_key}",
-            label_visibility="collapsed"
-        )
-
-    with col2:
-        send_btn = st.button("Invia", use_container_width=True, type="primary")
-
-    # Clear chat button
-    if st.session_state.ai_chat_history:
-        if st.button("🗑️ Pulisci Chat", use_container_width=False):
-            st.session_state.ai_chat_history = []
-            st.session_state.chat_input_key += 1
-            st.rerun()
-
-    # Process user input
-    if send_btn and user_question:
-        with st.spinner("Elaborazione..."):
-            previous_analysis = st.session_state.get('ai_result', None)
-            response = chat_with_ai(
-                user_question,
-                st.session_state.scan_result,
-                st.session_state.vuln_report,
-                chat_history=st.session_state.ai_chat_history,
-                previous_analysis=previous_analysis
-            )
-            st.session_state.ai_chat_history.append({"role": "user", "content": user_question})
-            st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
-            # Increment key to clear input field
-            st.session_state.chat_input_key += 1
-            st.rerun()
+        # Process user input
+        if send_btn and user_question:
+            with st.spinner("Elaborazione..."):
+                previous_analysis = st.session_state.get('ai_result', None)
+                response = chat_with_ai(
+                    user_question,
+                    st.session_state.scan_result,
+                    st.session_state.vuln_report,
+                    chat_history=st.session_state.ai_chat_history,
+                    previous_analysis=previous_analysis
+                )
+                st.session_state.ai_chat_history.append({"role": "user", "content": user_question})
+                st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
+                st.session_state.chat_input_key += 1
+                st.rerun()
 
 
 # ============================================================================
