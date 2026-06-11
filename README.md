@@ -9,7 +9,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 
-[Features](#-features) • [AI Setup](#ai-configuration) • [Installation](#-installation) • [Usage](#-usage) • [Architecture](#-architecture)
+[Features](#features) • [AI Setup](#ai-configuration) • [Installation](#installation) • [Usage](#usage) • [Architecture](#architecture)
 
 </div>
 
