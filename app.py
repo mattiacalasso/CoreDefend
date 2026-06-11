@@ -538,8 +538,8 @@ Sii professionale, dettagliato e actionable."""
         return f"Errore nell'analisi AI: {str(e)}"
 
 
-def chat_with_ai(user_question, scan_result, vuln_report):
-    """Interactive chat about scan results."""
+def chat_with_ai(user_question, scan_result, vuln_report, chat_history=None, previous_analysis=None):
+    """Interactive chat about scan results with conversation memory."""
     client = get_groq_client()
     if not client:
         return "AI non disponibile. Verifica la configurazione dell'API key."
@@ -554,17 +554,36 @@ def chat_with_ai(user_question, scan_result, vuln_report):
                      for a in vuln_report.port_alerts[:15]]
     }
 
+    # Build system prompt with previous analysis if available
+    system_content = f"""Sei un assistente di cybersecurity esperto. L'utente ha eseguito una scansione di vulnerabilità.
+
+RISULTATI SCANSIONE:
+{json.dumps(context, indent=2)}
+"""
+
+    if previous_analysis:
+        system_content += f"""
+ANALISI PRECEDENTE GENERATA:
+{previous_analysis[:3000]}
+"""
+
+    system_content += """
+Rispondi alle domande dell'utente in italiano. Puoi fare riferimento all'analisi precedente se pertinente.
+Sii preciso, professionale e fornisci dettagli tecnici quando richiesto."""
+
+    # Build messages with conversation history
+    messages = [{"role": "system", "content": system_content}]
+
+    if chat_history:
+        for msg in chat_history[-10:]:  # Keep last 10 messages for context
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    messages.append({"role": "user", "content": user_question})
+
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": f"""Sei un assistente di cybersecurity esperto. L'utente ha appena eseguito una scansione di vulnerabilità con questi risultati:
-
-{json.dumps(context, indent=2)}
-
-Rispondi alle domande dell'utente in italiano, basandoti su questi dati. Sii preciso e professionale."""},
-                {"role": "user", "content": user_question}
-            ],
+            messages=messages,
             temperature=0.4,
             max_tokens=2000
         )
@@ -1674,16 +1693,69 @@ def render_ai_tab():
         return
 
     if not get_groq_api_key():
-        st.warning("API Key Groq non configurata. Configura GROQ_API_KEY nei secrets di Streamlit Cloud.")
-        st.markdown("""
-        **Come configurare:**
-        1. Vai su [Streamlit Cloud](https://share.streamlit.io)
-        2. Apri le impostazioni della tua app
-        3. Aggiungi nei Secrets:
-        ```toml
-        GROQ_API_KEY = "la_tua_api_key"
-        ```
-        """)
+        st.warning("API Key Groq non configurata.")
+
+        with st.expander("📖 Guida Configurazione API Key", expanded=True):
+            st.markdown("""
+## Come ottenere l'API Key Groq (Gratuita)
+
+1. Vai su **[console.groq.com](https://console.groq.com)**
+2. Registrati con Google o GitHub (gratis)
+3. Clicca su **API Keys** nel menu
+4. Clicca **Create API Key**
+5. Copia la key (inizia con `gsk_...`)
+
+---
+
+## Configurazione per Sistema Operativo
+
+### macOS / Linux
+
+Apri il terminale ed esegui:
+```bash
+echo 'export GROQ_API_KEY="gsk_la_tua_key"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Poi riavvia l'app.
+
+### Windows (PowerShell)
+
+```powershell
+[System.Environment]::SetEnvironmentVariable('GROQ_API_KEY', 'gsk_la_tua_key', 'User')
+```
+
+Poi riavvia il terminale e l'app.
+
+### Windows (CMD)
+
+```cmd
+setx GROQ_API_KEY "gsk_la_tua_key"
+```
+
+Poi riavvia il terminale e l'app.
+
+---
+
+## Alternativa: File di Configurazione
+
+Crea il file `.streamlit/secrets.toml` nella cartella dell'app:
+
+```toml
+GROQ_API_KEY = "gsk_la_tua_key"
+```
+
+---
+
+## Verifica
+
+Dopo la configurazione, riavvia l'app:
+```bash
+streamlit run app.py
+```
+
+Se configurato correttamente, questo messaggio scomparirà.
+            """)
         return
 
     if not st.session_state.scan_result or not st.session_state.vuln_report:
@@ -1749,48 +1821,119 @@ def render_ai_tab():
     # AI Chat
     st.markdown("---")
     st.markdown("### Chat con AI")
-    st.markdown("Fai domande specifiche sui risultati della scansione.")
+
+    # Show context info
+    if 'ai_result' in st.session_state and st.session_state.ai_result:
+        st.success("L'AI ha memoria dell'analisi precedente. Puoi fare domande di approfondimento!")
 
     # Initialize chat history
     if 'ai_chat_history' not in st.session_state:
         st.session_state.ai_chat_history = []
 
-    # Chat input
-    user_question = st.text_input(
-        "Domanda",
-        placeholder="Es: Quali sono le vulnerabilità più critiche? Come posso proteggere la porta 22?",
-        key="ai_chat_input"
-    )
-
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        send_btn = st.button("Invia", use_container_width=True)
-    with col2:
-        if st.button("Pulisci Chat", use_container_width=True):
-            st.session_state.ai_chat_history = []
-            st.rerun()
-
-    if send_btn and user_question:
-        with st.spinner("Elaborazione..."):
-            response = chat_with_ai(user_question, st.session_state.scan_result, st.session_state.vuln_report)
-            st.session_state.ai_chat_history.append({"role": "user", "content": user_question})
-            st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
-            st.rerun()
-
-    # Display chat history
-    for msg in st.session_state.ai_chat_history:
-        if msg["role"] == "user":
-            st.markdown(f"""
-            <div style="background: #3b82f6; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; margin-left: 20%;">
-                <strong>Tu:</strong> {msg["content"]}
+    # Display chat history first
+    chat_container = st.container()
+    with chat_container:
+        if not st.session_state.ai_chat_history:
+            st.markdown("""
+            <div style="background: #252525; padding: 20px; border-radius: 12px; text-align: center; color: #888;">
+                <p>Inizia una conversazione con l'AI.</p>
+                <p style="font-size: 0.85rem;">Puoi chiedere dettagli sull'analisi, approfondimenti su vulnerabilità specifiche, o consigli di remediation.</p>
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.markdown(f"""
-            <div style="background: #252525; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; margin-right: 20%; border-left: 3px solid #ff6b35;">
-                <strong>AI:</strong><br>{msg["content"].replace(chr(10), '<br>')}
-            </div>
-            """, unsafe_allow_html=True)
+            for msg in st.session_state.ai_chat_history:
+                if msg["role"] == "user":
+                    st.markdown(f"""
+                    <div style="background: #3b82f6; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; margin-left: 20%;">
+                        <strong>Tu:</strong> {msg["content"]}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style="background: #252525; color: white; padding: 12px 16px; border-radius: 12px; margin: 8px 0; margin-right: 10%; border-left: 3px solid #ff6b35;">
+                        <strong>AI:</strong><br>{msg["content"].replace(chr(10), '<br>')}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Quick question suggestions (only show if no chat history)
+    if not st.session_state.ai_chat_history:
+        st.markdown("**Domande suggerite:**")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("Qual è il rischio maggiore?", key="q1", use_container_width=True):
+                st.session_state.pending_question = "Qual è il rischio maggiore che hai identificato e perché?"
+                st.rerun()
+
+        with col2:
+            if st.button("Come proteggo le porte?", key="q2", use_container_width=True):
+                st.session_state.pending_question = "Come posso proteggere le porte critiche che hai identificato?"
+                st.rerun()
+
+        with col3:
+            if st.button("Priorità di intervento?", key="q3", use_container_width=True):
+                st.session_state.pending_question = "Dammi una lista delle priorità di intervento ordinate per urgenza"
+                st.rerun()
+
+    # Process pending question from buttons
+    if 'pending_question' in st.session_state:
+        pending = st.session_state.pop('pending_question')
+        with st.spinner("Elaborazione..."):
+            previous_analysis = st.session_state.get('ai_result', None)
+            response = chat_with_ai(
+                pending,
+                st.session_state.scan_result,
+                st.session_state.vuln_report,
+                chat_history=st.session_state.ai_chat_history,
+                previous_analysis=previous_analysis
+            )
+            st.session_state.ai_chat_history.append({"role": "user", "content": pending})
+            st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
+            st.rerun()
+
+    # Initialize input key counter for clearing input
+    if 'chat_input_key' not in st.session_state:
+        st.session_state.chat_input_key = 0
+
+    # Chat input area
+    col1, col2 = st.columns([5, 1])
+
+    with col1:
+        user_question = st.text_input(
+            "Messaggio",
+            placeholder="Scrivi la tua domanda... (es: Spiegami meglio la vulnerabilità sulla porta 22)",
+            key=f"ai_chat_input_{st.session_state.chat_input_key}",
+            label_visibility="collapsed"
+        )
+
+    with col2:
+        send_btn = st.button("Invia", use_container_width=True, type="primary")
+
+    # Clear chat button
+    if st.session_state.ai_chat_history:
+        if st.button("🗑️ Pulisci Chat", use_container_width=False):
+            st.session_state.ai_chat_history = []
+            st.session_state.chat_input_key += 1
+            st.rerun()
+
+    # Process user input
+    if send_btn and user_question:
+        with st.spinner("Elaborazione..."):
+            previous_analysis = st.session_state.get('ai_result', None)
+            response = chat_with_ai(
+                user_question,
+                st.session_state.scan_result,
+                st.session_state.vuln_report,
+                chat_history=st.session_state.ai_chat_history,
+                previous_analysis=previous_analysis
+            )
+            st.session_state.ai_chat_history.append({"role": "user", "content": user_question})
+            st.session_state.ai_chat_history.append({"role": "assistant", "content": response})
+            # Increment key to clear input field
+            st.session_state.chat_input_key += 1
+            st.rerun()
 
 
 # ============================================================================
