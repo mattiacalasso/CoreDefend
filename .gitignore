@@ -38,8 +38,8 @@ env/
 *.swo
 *~
 
-# Streamlit
-.streamlit/
+# Streamlit secrets (keep .streamlit/ folder but exclude secrets)
+.streamlit/secrets.toml
 
 # OS files
 .DS_Store
