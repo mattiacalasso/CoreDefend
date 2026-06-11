@@ -8,7 +8,6 @@
 ![AI](https://img.shields.io/badge/AI-Groq%20LLM-F55036?style=for-the-badge&logo=ai&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
-**Enterprise-grade vulnerability scanner inspired by Nessus, Qualys, and OpenVAS**
 
 [Features](#-features) • [AI Setup](#ai-configuration) • [Installation](#-installation) • [Usage](#-usage) • [Architecture](#-architecture)
 
